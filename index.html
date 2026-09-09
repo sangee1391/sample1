@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>san Search</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            background-color: #ffffff;
+            color: #202124;
+        }
+
+        /* Top Navigation Header */
+        header {
+            display: flex;
+            justify-content: flex-end;
+            padding: 15px 30px;
+            gap: 15px;
+            font-size: 13px;
+        }
+
+        header a {
+            color: #000000;
+            text-decoration: none;
+            opacity: 0.85;
+        }
+
+        header a:hover {
+            text-decoration: underline;
+        }
+
+        /* Main Search Container */
+        main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            margin-top: -50px; /* Slight offset for visual balance */
+        }
+
+        /* Search Engine Branding Logo */
+        .logo {
+            font-size: 90px;
+            font-weight: 700;
+            letter-spacing: -3px;
+            margin-bottom: 30px;
+            user-select: none;
+        }
+
+        .logo span:nth-child(1) { color: #4285F4; } /* s */
+        .logo span:nth-child(2) { color: #EA4335; } /* a */
+        .logo span:nth-child(3) { color: #FBBC05; } /* n */
+
+        /* Search Form Layout */
+        .search-form {
+            width: 100%;
+            max-width: 584px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .search-box-container {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            border: 1px solid #dfe1e5;
+            border-radius: 24px;
+            padding: 0 15px;
+            height: 46px;
+            transition: box-shadow 0.2s;
+        }
+
+        .search-box-container:hover, 
+        .search-box-container:focus-within {
+            background-color: #fff;
+            box-shadow: 0 1px 6px rgba(32,33,36,0.28);
+            border-color: rgba(223,225,229,0);
+        }
+
+        .search-icon {
+            color: #9aa0a6;
+            margin-right: 10px;
+            width: 20px;
+            height: 20px;
+        }
+
+        .search-input {
+            flex: 1;
+            border: none;
+            outline: none;
+            font-size: 16px;
+            color: #000;
+            background: transparent;
+        }
+
+        /* Action Buttons */
+        .button-group {
+            margin-top: 25px;
+            display: flex;
+            gap: 12px;
+        }
+
+        .btn {
+            background-color: #f8f9fa;
+            border: 1px solid #f8f9fa;
+            border-radius: 4px;
+            color: #3c4043;
+            font-size: 14px;
+            padding: 0 16px;
+            line-height: 36px;
+            min-width: 54px;
+            text-align: center;
+            cursor: pointer;
+            user-select: none;
+            transition: border 0.1s, color 0.1s;
+        }
+
+        .btn:hover {
+            box-shadow: 0 1px 1px rgba(0,0,0,0.1);
+            background-color: #f8f9fa;
+            border: 1px solid #dadce0;
+            color: #202124;
+        }
+
+        .btn:focus {
+            border: 1px solid #4285f4;
+            outline: none;
+        }
+
+        /* Dynamic Results Area */
+        .results-container {
+            width: 100%;
+            max-width: 652px;
+            margin-top: 40px;
+            display: none; /* Hidden by default */
+        }
+
+        .result-item {
+            margin-bottom: 25px;
+            animation: fadeIn 0.3s ease-in-out;
+        }
+
+        .result-url {
+            font-size: 12px;
+            color: #202124;
+            margin-bottom: 4px;
+            display: block;
+        }
+
+        .result-title {
+            font-size: 20px;
+            color: #1a0dab;
+            text-decoration: none;
+            display: inline-block;
+            margin-bottom: 4px;
+        }
+
+        .result-title:hover {
+            text-decoration: underline;
+        }
+
+        .result-snippet {
+            font-size: 14px;
+            color: #4d5156;
+            line-height: 1.58;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Footer Customization */
+        footer {
+            background: #f2f2f2;
+            border-top: 1px solid #e4e4e4;
+            font-size: 14px;
+            color: #70757a;
+        }
+
+        .footer-row {
+            padding: 15px 30px;
+            display: flex;
+            justify-content: space-between;
+            border-bottom: 1px solid #dadce0;
+        }
+
+        .footer-row:last-child {
+            border-bottom: none;
+        }
+
+        .footer-links {
+            display: flex;
+            gap: 25px;
+        }
+
+        .footer-links a {
+            color: #70757a;
+            text-decoration: none;
+        }
+
+        .footer-links a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header Navigation -->
+    <header>
+        <a href="#images">Images</a>
+        <a href="#mail">sanMail</a>
+    </header>
+
+    <!-- Main Content Arena -->
+    <main id="main-content">
+        
+        <div class="logo" id="brand-logo">
+            <span>s</span><span>a</span><span>n</span>
+        </div>
+
+        <!-- Search Functionality Form -->
+        <form class="search-form" id="searchForm" onsubmit="executeSearch(event)">
+            <div class="search-box-container">
+                <!-- Simple SVG Search Icon -->
+                <svg class="search-icon" focusable="false" viewBox="0 0 24 24" xmlns="http://w3.org">
+                    <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"></path>
+                </svg>
+                <input type="text" class="search-input" id="searchInput" autocomplete="off" autofocus title="Search">
+            </div>
+
+            <div class="button-group" id="btnGroup">
+                <button type="submit" class="btn">san Search</button>
+                <button type="button" class="btn" onclick="luckyPhrase()">I'm Feeling Lucky</button>
+            </div>
+        </form>
+
+        <!-- Dynamic Results Block -->
+        <section class="results-container" id="resultsContainer"></section>
+    </main>
+
+    <!-- Footer Information -->
+    <footer>
+        <div class="footer-row">
+            <span>India</span>
+        </div>
+        <div class="footer-row">
+            <div class="footer-links">
+                <a href="#about">About</a>
+                <a href="#advertising">Advertising</a>
+                <a href="#business">Business</a>
+            </div>
+            <div class="footer-links">
+                <a href="#privacy">Privacy</a>
+                <a href="#terms">Terms</a>
+                <a href="#settings">Settings</a>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Frontend Core Application Logic -->
+    <script>
+        function executeSearch(event) {
+            event.preventDefault();
+            const query = document.getElementById('searchInput').value.trim();
+            const resultsContainer = document.getElementById('resultsContainer');
+            const logo = document.getElementById('brand-logo');
+            const mainContent = document.getElementById('main-content');
+            const btnGroup = document.getElementById('btnGroup');
+
+            if (!query) return;
+
+            // Shift layouts to present results seamlessly
+            mainContent.style.justifyContent = 'flex-start';
+            mainContent.style.marginTop = '40px';
+            logo.style.fontSize = '45px';
+            logo.style.marginBottom = '15px';
+            btnGroup.style.display = 'none';
+
+            // Generate contextual mock data simulating search queries
+            const mockData = [
+                {
+                    title: `Official ${query} Portal - Discover More Here`,
+                    url: `https://www.web-of-${query.toLowerCase().replace(/\s+/g, '-')}.org`,
+                    snippet: `Your ultimate guide and primary destination for everything related to ${query}. Access deep dives, community features, user documentation, and live streaming indexes.`
+                },
+                {
+                    title: `${query} Definition, History, & Practical Application`,
+                    url: `https://wikipedia.org{encodeURIComponent(query)}`,
+                    snippet: `Explore the comprehensive historical evolution of ${query}. Modern implementations show an incremental shift toward cloud integration and user experience paradigms.`
+                },
+                {
+                    title: `Top 10 Insights Tools & Strategies for ${query}`,
+                    url: `https://techradar-mock.com{encodeURIComponent(query.toLowerCase())}`,
+                    snippet: `Struggling to maximize your output with ${query}? Our seasoned engineers share production-ready architecture metrics, parsing schemas, and interface code tweaks.`
+                }
+            ];
+
+            // Render parsed content securely onto the frontend viewport
+            resultsContainer.innerHTML = mockData.map(item => `
+                <div class="result-item">
+                    <span class="result-url">${item.url}</span>
