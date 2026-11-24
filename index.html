@@ -1,315 +1,212 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>san Search</title>
-    <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
+import streamlit as st
+import heapq
+import time
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-            background-color: #ffffff;
-            color: #202124;
-        }
+# Page configuration
+st.set_page_config(page_title="A* Pathfinding Visualizer", layout="centered")
 
-        /* Top Navigation Header */
-        header {
-            display: flex;
-            justify-content: flex-end;
-            padding: 15px 30px;
-            gap: 15px;
-            font-size: 13px;
-        }
+GRID_SIZE = 15  # 15x15 fits cleanly on standard browser screens without scrolling
 
-        header a {
-            color: #000000;
-            text-decoration: none;
-            opacity: 0.85;
-        }
+# Initialize session state
+if "start" not in st.session_state:
+    st.session_state.start = (2, 2)
+if "end" not in st.session_state:
+    st.session_state.end = (12, 12)
+if "walls" not in st.session_state:
+    st.session_state.walls = set()
+if "open_set" not in st.session_state:
+    st.session_state.open_set = set()
+if "closed_set" not in st.session_state:
+    st.session_state.closed_set = set()
+if "path" not in st.session_state:
+    st.session_state.path = []
+if "status" not in st.session_state:
+    st.session_state.status = "Select a tool below and click the grid to edit, then press **Run A***."
 
-        header a:hover {
-            text-decoration: underline;
-        }
+st.title("🧭 A* Pathfinding Visualizer")
 
-        /* Main Search Container */
-        main {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-            margin-top: -50px; /* Slight offset for visual balance */
-        }
+# Controls & Tool Selection
+col_tool, col_run, col_clear = st.columns([3, 1, 1])
 
-        /* Search Engine Branding Logo */
-        .logo {
-            font-size: 90px;
-            font-weight: 700;
-            letter-spacing: -3px;
-            margin-bottom: 30px;
-            user-select: none;
-        }
+with col_tool:
+    tool = st.radio(
+        "Click action:",
+        ["Wall ⬛", "Start 🟧", "End 🟦", "Erase ⬜"],
+        horizontal=True,
+        label_visibility="collapsed"
+    )
 
-        .logo span:nth-child(1) { color: #4285F4; } /* s */
-        .logo span:nth-child(2) { color: #EA4335; } /* a */
-        .logo span:nth-child(3) { color: #FBBC05; } /* n */
+with col_run:
+    run_btn = st.button("▶️ Run A*", use_container_width=True, type="primary")
 
-        /* Search Form Layout */
-        .search-form {
-            width: 100%;
-            max-width: 584px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
+with col_clear:
+    clear_btn = st.button("🗑️ Clear", use_container_width=True)
 
-        .search-box-container {
-            width: 100%;
-            display: flex;
-            align-items: center;
-            border: 1px solid #dfe1e5;
-            border-radius: 24px;
-            padding: 0 15px;
-            height: 46px;
-            transition: box-shadow 0.2s;
-        }
+# Handle Clear Button
+if clear_btn:
+    st.session_state.start = None
+    st.session_state.end = None
+    st.session_state.walls.clear()
+    st.session_state.open_set.clear()
+    st.session_state.closed_set.clear()
+    st.session_state.path = []
+    st.session_state.status = "Grid cleared! Place a Start (🟧) and End (🟦) node."
+    st.rerun()
 
-        .search-box-container:hover, 
-        .search-box-container:focus-within {
-            background-color: #fff;
-            box-shadow: 0 1px 6px rgba(32,33,36,0.28);
-            border-color: rgba(223,225,229,0);
-        }
+# Helper to handle grid button clicks
+def handle_cell_click(r, c):
+    cell = (r, c)
+    # Clear previous search visuals when editing the grid
+    st.session_state.open_set.clear()
+    st.session_state.closed_set.clear()
+    st.session_state.path = []
 
-        .search-icon {
-            color: #9aa0a6;
-            margin-right: 10px;
-            width: 20px;
-            height: 20px;
-        }
+    if tool == "Start 🟧":
+        if cell != st.session_state.end:
+            st.session_state.start = cell
+            st.session_state.walls.discard(cell)
+    elif tool == "End 🟦":
+        if cell != st.session_state.start:
+            st.session_state.end = cell
+            st.session_state.walls.discard(cell)
+    elif tool == "Wall ⬛":
+        if cell != st.session_state.start and cell != st.session_state.end:
+            if cell in st.session_state.walls:
+                st.session_state.walls.remove(cell)
+            else:
+                st.session_state.walls.add(cell)
+    elif tool == "Erase ⬜":
+        if cell == st.session_state.start:
+            st.session_state.start = None
+        elif cell == st.session_state.end:
+            st.session_state.end = None
+        st.session_state.walls.discard(cell)
 
-        .search-input {
-            flex: 1;
-            border: none;
-            outline: none;
-            font-size: 16px;
-            color: #000;
-            background: transparent;
-        }
+# Helper to render the grid inside a placeholder (allows live animation)
+grid_placeholder = st.empty()
 
-        /* Action Buttons */
-        .button-group {
-            margin-top: 25px;
-            display: flex;
-            gap: 12px;
-        }
+def render_grid(interactive=True):
+    with grid_placeholder.container():
+        # Tighten spacing between grid buttons
+        st.markdown(
+            """
+            <style>
+            div[data-testid="column"] { padding: 1px !important; }
+            button[kind="secondary"] { padding: 0px !important; min-height: 32px !important; }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        for r in range(GRID_SIZE):
+            cols = st.columns(GRID_SIZE)
+            for c in range(GRID_SIZE):
+                cell = (r, c)
+                if cell == st.session_state.start:
+                    icon = "🟧"
+                elif cell == st.session_state.end:
+                    icon = "🟦"
+                elif cell in st.session_state.walls:
+                    icon = "⬛"
+                elif cell in st.session_state.path:
+                    icon = "🟪"
+                elif cell in st.session_state.closed_set:
+                    icon = "🟥"
+                elif cell in st.session_state.open_set:
+                    icon = "🟩"
+                else:
+                    icon = "⬜"
 
-        .btn {
-            background-color: #f8f9fa;
-            border: 1px solid #f8f9fa;
-            border-radius: 4px;
-            color: #3c4043;
-            font-size: 14px;
-            padding: 0 16px;
-            line-height: 36px;
-            min-width: 54px;
-            text-align: center;
-            cursor: pointer;
-            user-select: none;
-            transition: border 0.1s, color 0.1s;
-        }
+                if interactive:
+                    cols[c].button(
+                        icon,
+                        key=f"cell_{r}_{c}",
+                        on_click=handle_cell_click,
+                        args=(r, c),
+                        use_container_width=True,
+                    )
+                else:
+                    cols[c].markdown(f"<div style='text-align:center; font-size:20px;'>{icon}</div>", unsafe_allow_html=True)
 
-        .btn:hover {
-            box-shadow: 0 1px 1px rgba(0,0,0,0.1);
-            background-color: #f8f9fa;
-            border: 1px solid #dadce0;
-            color: #202124;
-        }
+# A* Algorithm Execution
+def heuristic(a, b):
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
-        .btn:focus {
-            border: 1px solid #4285f4;
-            outline: none;
-        }
+def get_neighbors(node):
+    r, c = node
+    neighbors = []
+    for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+        nr, nc = r + dr, c + dc
+        if 0 <= nr < GRID_SIZE and 0 <= nc < GRID_SIZE and (nr, nc) not in st.session_state.walls:
+            neighbors.append((nr, nc))
+    return neighbors
 
-        /* Dynamic Results Area */
-        .results-container {
-            width: 100%;
-            max-width: 652px;
-            margin-top: 40px;
-            display: none; /* Hidden by default */
-        }
+if run_btn:
+    start = st.session_state.start
+    end = st.session_state.end
 
-        .result-item {
-            margin-bottom: 25px;
-            animation: fadeIn 0.3s ease-in-out;
-        }
+    if not start or not end:
+        st.session_state.status = "⚠️ Please place both a **Start (🟧)** and **End (🟦)** node first!"
+    else:
+        st.session_state.open_set.clear()
+        st.session_state.closed_set.clear()
+        st.session_state.path = []
 
-        .result-url {
-            font-size: 12px;
-            color: #202124;
-            margin-bottom: 4px;
-            display: block;
-        }
+        count = 0
+        open_heap = []
+        heapq.heappush(open_heap, (0, count, start))
+        open_hash = {start}
+        came_from = {}
 
-        .result-title {
-            font-size: 20px;
-            color: #1a0dab;
-            text-decoration: none;
-            display: inline-block;
-            margin-bottom: 4px;
-        }
+        g_score = {(r, c): float("inf") for r in range(GRID_SIZE) for c in range(GRID_SIZE)}
+        g_score[start] = 0
 
-        .result-title:hover {
-            text-decoration: underline;
-        }
+        f_score = {(r, c): float("inf") for r in range(GRID_SIZE) for c in range(GRID_SIZE)}
+        f_score[start] = heuristic(start, end)
 
-        .result-snippet {
-            font-size: 14px;
-            color: #4d5156;
-            line-height: 1.58;
-        }
+        found = False
+        step_counter = 0
 
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
+        while open_heap:
+            current = heapq.heappop(open_heap)[2]
+            open_hash.remove(current)
+            st.session_state.open_set.discard(current)
 
-        /* Footer Customization */
-        footer {
-            background: #f2f2f2;
-            border-top: 1px solid #e4e4e4;
-            font-size: 14px;
-            color: #70757a;
-        }
+            if current == end:
+                curr = end
+                while curr in came_from:
+                    curr = came_from[curr]
+                    if curr != start:
+                        st.session_state.path.append(curr)
+                st.session_state.status = f"✅ Path found! Length: **{g_score[end]} steps**."
+                found = True
+                break
 
-        .footer-row {
-            padding: 15px 30px;
-            display: flex;
-            justify-content: space-between;
-            border-bottom: 1px solid #dadce0;
-        }
+            if current != start:
+                st.session_state.closed_set.add(current)
 
-        .footer-row:last-child {
-            border-bottom: none;
-        }
+            for neighbor in get_neighbors(current):
+                temp_g = g_score[current] + 1
+                if temp_g < g_score[neighbor]:
+                    came_from[neighbor] = current
+                    g_score[neighbor] = temp_g
+                    f_score[neighbor] = temp_g + heuristic(neighbor, end)
+                    if neighbor not in open_hash:
+                        count += 1
+                        heapq.heappush(open_heap, (f_score[neighbor], count, neighbor))
+                        open_hash.add(neighbor)
+                        if neighbor != end:
+                            st.session_state.open_set.add(neighbor)
 
-        .footer-links {
-            display: flex;
-            gap: 25px;
-        }
+            # Animate every 3 steps for smooth browser rendering
+            step_counter += 1
+            if step_counter % 3 == 0:
+                render_grid(interactive=False)
+                time.sleep(0.03)
 
-        .footer-links a {
-            color: #70757a;
-            text-decoration: none;
-        }
+        if not found:
+            st.session_state.status = "❌ No path found! Clear some walls and try again."
 
-        .footer-links a:hover {
-            text-decoration: underline;
-        }
-    </style>
-</head>
-<body>
+# Render final interactive grid and status message
+render_grid(interactive=True)
+st.info(st.session_state.status)
 
-    <!-- Header Navigation -->
-    <header>
-        <a href="#images">Images</a>
-        <a href="#mail">sanMail</a>
-    </header>
-
-    <!-- Main Content Arena -->
-    <main id="main-content">
-        
-        <div class="logo" id="brand-logo">
-            <span>s</span><span>a</span><span>n</span>
-        </div>
-
-        <!-- Search Functionality Form -->
-        <form class="search-form" id="searchForm" onsubmit="executeSearch(event)">
-            <div class="search-box-container">
-                <!-- Simple SVG Search Icon -->
-                <svg class="search-icon" focusable="false" viewBox="0 0 24 24" xmlns="http://w3.org">
-                    <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"></path>
-                </svg>
-                <input type="text" class="search-input" id="searchInput" autocomplete="off" autofocus title="Search">
-            </div>
-
-            <div class="button-group" id="btnGroup">
-                <button type="submit" class="btn">san Search</button>
-                <button type="button" class="btn" onclick="luckyPhrase()">I'm Feeling Lucky</button>
-            </div>
-        </form>
-
-        <!-- Dynamic Results Block -->
-        <section class="results-container" id="resultsContainer"></section>
-    </main>
-
-    <!-- Footer Information -->
-    <footer>
-        <div class="footer-row">
-            <span>India</span>
-        </div>
-        <div class="footer-row">
-            <div class="footer-links">
-                <a href="#about">About</a>
-                <a href="#advertising">Advertising</a>
-                <a href="#business">Business</a>
-            </div>
-            <div class="footer-links">
-                <a href="#privacy">Privacy</a>
-                <a href="#terms">Terms</a>
-                <a href="#settings">Settings</a>
-            </div>
-        </div>
-    </footer>
-
-    <!-- Frontend Core Application Logic -->
-    <script>
-        function executeSearch(event) {
-            event.preventDefault();
-            const query = document.getElementById('searchInput').value.trim();
-            const resultsContainer = document.getElementById('resultsContainer');
-            const logo = document.getElementById('brand-logo');
-            const mainContent = document.getElementById('main-content');
-            const btnGroup = document.getElementById('btnGroup');
-
-            if (!query) return;
-
-            // Shift layouts to present results seamlessly
-            mainContent.style.justifyContent = 'flex-start';
-            mainContent.style.marginTop = '40px';
-            logo.style.fontSize = '45px';
-            logo.style.marginBottom = '15px';
-            btnGroup.style.display = 'none';
-
-            // Generate contextual mock data simulating search queries
-            const mockData = [
-                {
-                    title: `Official ${query} Portal - Discover More Here`,
-                    url: `https://www.web-of-${query.toLowerCase().replace(/\s+/g, '-')}.org`,
-                    snippet: `Your ultimate guide and primary destination for everything related to ${query}. Access deep dives, community features, user documentation, and live streaming indexes.`
-                },
-                {
-                    title: `${query} Definition, History, & Practical Application`,
-                    url: `https://wikipedia.org{encodeURIComponent(query)}`,
-                    snippet: `Explore the comprehensive historical evolution of ${query}. Modern implementations show an incremental shift toward cloud integration and user experience paradigms.`
-                },
-                {
-                    title: `Top 10 Insights Tools & Strategies for ${query}`,
-                    url: `https://techradar-mock.com{encodeURIComponent(query.toLowerCase())}`,
-                    snippet: `Struggling to maximize your output with ${query}? Our seasoned engineers share production-ready architecture metrics, parsing schemas, and interface code tweaks.`
-                }
-            ];
-
-            // Render parsed content securely onto the frontend viewport
-            resultsContainer.innerHTML = mockData.map(item => `
-                <div class="result-item">
-                    <span class="result-url">${item.url}</span>

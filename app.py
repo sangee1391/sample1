@@ -1,0 +1,211 @@
+import streamlit as st
+import heapq
+import time
+
+# Page configuration
+st.set_page_config(page_title="A* Pathfinding Visualizer", layout="centered")
+
+GRID_SIZE = 15  # 15x15 fits cleanly on standard browser screens without scrolling
+
+# Initialize session state
+if "start" not in st.session_state:
+    st.session_state.start = (2, 2)
+if "end" not in st.session_state:
+    st.session_state.end = (12, 12)
+if "walls" not in st.session_state:
+    st.session_state.walls = set()
+if "open_set" not in st.session_state:
+    st.session_state.open_set = set()
+if "closed_set" not in st.session_state:
+    st.session_state.closed_set = set()
+if "path" not in st.session_state:
+    st.session_state.path = []
+if "status" not in st.session_state:
+    st.session_state.status = "Select a tool below and click the grid to edit, then press **Run A***."
+
+st.title("🧭 A* Pathfinding Visualizer")
+
+# Controls & Tool Selection
+col_tool, col_run, col_clear = st.columns([3, 1, 1])
+
+with col_tool:
+    tool = st.radio(
+        "Click action:",
+        ["Wall ⬛", "Start 🟧", "End 🟦", "Erase ⬜"],
+        horizontal=True,
+        label_visibility="collapsed"
+    )
+
+with col_run:
+    run_btn = st.button("▶ Run A*", use_container_width=True, type="primary")
+
+with col_clear:
+    clear_btn = st.button("🗑 Clear", use_container_width=True)
+
+# Handle Clear Button
+if clear_btn:
+    st.session_state.start = None
+    st.session_state.end = None
+    st.session_state.walls.clear()
+    st.session_state.open_set.clear()
+    st.session_state.closed_set.clear()
+    st.session_state.path = []
+    st.session_state.status = "Grid cleared! Place a Start (🟧) and End (🟦) node."
+    st.rerun()
+
+# Helper to handle grid button clicks
+def handle_cell_click(r, c):
+    cell = (r, c)
+    # Clear previous search visuals when editing the grid
+    st.session_state.open_set.clear()
+    st.session_state.closed_set.clear()
+    st.session_state.path = []
+
+    if tool == "Start 🟧":
+        if cell != st.session_state.end:
+            st.session_state.start = cell
+            st.session_state.walls.discard(cell)
+    elif tool == "End 🟦":
+        if cell != st.session_state.start:
+            st.session_state.end = cell
+            st.session_state.walls.discard(cell)
+    elif tool == "Wall ⬛":
+        if cell != st.session_state.start and cell != st.session_state.end:
+            if cell in st.session_state.walls:
+                st.session_state.walls.remove(cell)
+            else:
+                st.session_state.walls.add(cell)
+    elif tool == "Erase ⬜":
+        if cell == st.session_state.start:
+            st.session_state.start = None
+        elif cell == st.session_state.end:
+            st.session_state.end = None
+        st.session_state.walls.discard(cell)
+
+# Helper to render the grid inside a placeholder (allows live animation)
+grid_placeholder = st.empty()
+
+def render_grid(interactive=True):
+    with grid_placeholder.container():
+        # Tighten spacing between grid buttons
+        st.markdown(
+            """
+            <style>
+            div[data-testid="column"] { padding: 1px !important; }
+            button[kind="secondary"] { padding: 0px !important; min-height: 32px !important; }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        for r in range(GRID_SIZE):
+            cols = st.columns(GRID_SIZE)
+            for c in range(GRID_SIZE):
+                cell = (r, c)
+                if cell == st.session_state.start:
+                    icon = "🟧"
+                elif cell == st.session_state.end:
+                    icon = "🟦"
+                elif cell in st.session_state.walls:
+                    icon = "⬛"
+                elif cell in st.session_state.path:
+                    icon = "🟪"
+                elif cell in st.session_state.closed_set:
+                    icon = "🟥"
+                elif cell in st.session_state.open_set:
+                    icon = "🟩"
+                else:
+                    icon = "⬜"
+
+                if interactive:
+                    cols[c].button(
+                        icon,
+                        key=f"cell_{r}_{c}",
+                        on_click=handle_cell_click,
+                        args=(r, c),
+                        use_container_width=True,
+                    )
+                else:
+                    cols[c].markdown(f"<div style='text-align:center; font-size:20px;'>{icon}</div>", unsafe_allow_html=True)
+
+# A* Algorithm Execution
+def heuristic(a, b):
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+def get_neighbors(node):
+    r, c = node
+    neighbors = []
+    for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+        nr, nc = r + dr, c + dc
+        if 0 <= nr < GRID_SIZE and 0 <= nc < GRID_SIZE and (nr, nc) not in st.session_state.walls:
+            neighbors.append((nr, nc))
+    return neighbors
+
+if run_btn:
+    start = st.session_state.start
+    end = st.session_state.end
+
+    if not start or not end:
+        st.session_state.status = "⚠ Please place both a **Start (🟧)** and **End (🟦)** node first!"
+    else:
+        st.session_state.open_set.clear()
+        st.session_state.closed_set.clear()
+        st.session_state.path = []
+
+        count = 0
+        open_heap = []
+        heapq.heappush(open_heap, (0, count, start))
+        open_hash = {start}
+        came_from = {}
+
+        g_score = {(r, c): float("inf") for r in range(GRID_SIZE) for c in range(GRID_SIZE)}
+        g_score[start] = 0
+
+        f_score = {(r, c): float("inf") for r in range(GRID_SIZE) for c in range(GRID_SIZE)}
+        f_score[start] = heuristic(start, end)
+
+        found = False
+        step_counter = 0
+
+        while open_heap:
+            current = heapq.heappop(open_heap)[2]
+            open_hash.remove(current)
+            st.session_state.open_set.discard(current)
+
+            if current == end:
+                curr = end
+                while curr in came_from:
+                    curr = came_from[curr]
+                    if curr != start:
+                        st.session_state.path.append(curr)
+                st.session_state.status = f"✅ Path found! Length: **{g_score[end]} steps**."
+                found = True
+                break
+
+            if current != start:
+                st.session_state.closed_set.add(current)
+
+            for neighbor in get_neighbors(current):
+                temp_g = g_score[current] + 1
+                if temp_g < g_score[neighbor]:
+                    came_from[neighbor] = current
+                    g_score[neighbor] = temp_g
+                    f_score[neighbor] = temp_g + heuristic(neighbor, end)
+                    if neighbor not in open_hash:
+                        count += 1
+                        heapq.heappush(open_heap, (f_score[neighbor], count, neighbor))
+                        open_hash.add(neighbor)
+                        if neighbor != end:
+                            st.session_state.open_set.add(neighbor)
+
+            # Animate every 3 steps for smooth browser rendering
+            step_counter += 1
+            if step_counter % 3 == 0:
+                render_grid(interactive=False)
+                time.sleep(0.03)
+
+        if not found:
+            st.session_state.status = "❌ No path found! Clear some walls and try again."
+
+# Render final interactive grid and status message
+render_grid(interactive=True)
+st.info(st.session_state.status)
